@@ -40,6 +40,13 @@ export function ensureSchema(): Promise<void> {
       )`;
       await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended boolean NOT NULL DEFAULT false`;
       await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version integer NOT NULL DEFAULT 0`;
+      await sql`CREATE TABLE IF NOT EXISTS password_resets (
+        token_hash text PRIMARY KEY,
+        user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expires_at timestamptz NOT NULL,
+        used_at timestamptz,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )`;
       await sql`CREATE TABLE IF NOT EXISTS driver_profiles (
         user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         vehicle text NOT NULL,
