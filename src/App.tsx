@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -9,6 +9,8 @@ import {
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import MapPanel from "./MapPanel";
 import { AuthPage, initials, useAuth } from "./Auth";
+
+const AdminPortal = lazy(() => import("./Admin"));
 import { estimateFare, getRouteDistanceKm, places, rideTypes, seedTrips, type Booking } from "./data";
 
 type Toast = { text: string; tone?: "success" | "info" };
@@ -153,6 +155,10 @@ function App() {
   };
   const navToBook = () => navigate("/book");
   const swapLocations = () => { setPickup(destination); setDestination(pickup); };
+
+  if (location.pathname.startsWith("/admin/")) {
+    return <Suspense fallback={null}><Routes><Route path="/admin/:key" element={<AdminPortal />} /><Route path="*" element={<Navigate to="/dashboard" replace />} /></Routes></Suspense>;
+  }
 
   return (
     <div className="app-shell">

@@ -1,0 +1,193 @@
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { BadgeCheck, CarFront, Eye, EyeOff, LoaderCircle, LockKeyhole, LogOut, RefreshCw, Search, ShieldCheck, UserRound, X } from "lucide-react";
+
+type AdminUser = {
+  id: string;
+  role: "rider" | "driver";
+  fullName: string;
+  email: string;
+  phone: string | null;
+  createdAt: string;
+  driver: { vehicle: string; plateNumber: string; licenseNumber: string; status: string } | null;
+};
+
+/** A laptop/desktop: a large physical screen, a precise pointer, and not a touch tablet posing as a Mac. */
+function isLaptopDevice() {
+  const ua = navigator.userAgent;
+  if (/Mobi|Android|iPhone|iPad|iPod|Tablet|Silk|Kindle|PlayBook|BlackBerry|Opera Mini|IEMobile|webOS/i.test(ua)) return false;
+  if (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) return false; // iPadOS
+  const largeScreen = Math.max(screen.width, screen.height) >= 1024;
+  const finePointer = window.matchMedia("(pointer: fine)").matches;
+  return largeScreen && finePointer;
+}
+
+function useNoIndex() {
+  useEffect(() => {
+    const meta = document.createElement("meta");
+    meta.name = "robots";
+    meta.content = "noindex, nofollow, noarchive";
+    document.head.appendChild(meta);
+    const previousTitle = document.title;
+    document.title = "GoRide";
+    return () => { meta.remove(); document.title = previousTitle; };
+  }, []);
+}
+
+export default function AdminPortal() {
+  const { key = "" } = useParams();
+  const navigate = useNavigate();
+  const [phase, setPhase] = useState<"checking" | "login" | "ready">("checking");
+  useNoIndex();
+
+  const api = (path: string, init: RequestInit = {}) =>
+    fetch(`/api/admin/${path}`, { ...init, credentials: "same-origin", headers: { ...(init.headers ?? {}), "x-admin-key": key, "content-type": "application/json" } });
+
+  useEffect(() => {
+    let cancelled = false;
+    const leave = () => { if (!cancelled) navigate("/dashboard", { replace: true }); };
+    if (!isLaptopDevice()) { leave(); return; }
+    (async () => {
+      try {
+        const gate = await fetch(`/api/admin/gate?key=${encodeURIComponent(key)}`, { credentials: "same-origin" });
+        if (!gate.ok) return leave();
+        const session = await api("session");
+        if (cancelled) return;
+        if (session.status === 404) return leave();
+        setPhase(session.ok ? "ready" : "login");
+      } catch { leave(); }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  if (phase === "checking") return <div className="admin-shell admin-center"><LoaderCircle className="spin" size={22} /></div>;
+  if (phase === "login") return <AdminLogin api={api} onSuccess={() => setPhase("ready")} />;
+  return <AdminDashboard api={api} onSignedOut={() => setPhase("login")} />;
+}
+
+type Api = (path: string, init?: RequestInit) => Promise<Response>;
+
+function AdminLogin({ api, onSuccess }: { api: Api; onSuccess: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [show, setShow] = useState(false);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    setBusy(true);
+    const form = Object.fromEntries(new FormData(event.currentTarget).entries());
+    try {
+      const res = await api("login", { method: "POST", body: JSON.stringify(form) });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) onSuccess(); else setError(data.error ?? "Sign-in failed.");
+    } catch { setError("Sign-in is unavailable right now."); }
+    finally { setBusy(false); }
+  };
+  return <div className="admin-shell admin-center">
+    <form className="admin-login" onSubmit={submit} autoComplete="off">
+      <div className="admin-lock"><LockKeyhole size={20} /></div>
+      <h1>Restricted area</h1>
+      <p>Authorised GoRide administrators only.</p>
+      <label>Login<input name="login" required autoComplete="username" spellCheck={false} /></label>
+      <label>Password<span className="password-field"><input name="password" type={show ? "text" : "password"} required autoComplete="current-password" /><button type="button" aria-label={show ? "Hide password" : "Show password"} onClick={() => setShow(!show)}>{show ? <EyeOff size={16} /> : <Eye size={16} />}</button></span></label>
+      <label>Passcode<input name="passcode" type="password" inputMode="numeric" required autoComplete="one-time-code" /></label>
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      <button className="btn-primary full-btn" disabled={busy}>{busy ? <LoaderCircle size={16} className="spin" /> : <ShieldCheck size={16} />} Sign in</button>
+    </form>
+  </div>;
+}
+
+function AdminDashboard({ api, onSignedOut }: { api: Api; onSignedOut: () => void }) {
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [tab, setTab] = useState<"all" | "rider" | "driver" | "pending">("all");
+  const [query, setQuery] = useState("");
+  const [savingId, setSavingId] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await api("users");
+      if (res.status === 401 || res.status === 404) { onSignedOut(); return; }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setUsers(data.users);
+    } catch (e) { setError(e instanceof Error && e.message ? e.message : "Could not load accounts."); }
+    finally { setLoading(false); }
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, []);
+
+  const setStatus = async (user: AdminUser, status: "approved" | "rejected" | "pending") => {
+    setSavingId(user.id);
+    try {
+      const res = await api("driver-status", { method: "POST", body: JSON.stringify({ userId: user.id, status }) });
+      if (res.status === 401 || res.status === 404) { onSignedOut(); return; }
+      if (res.ok) setUsers((list) => list.map((u) => u.id === user.id && u.driver ? { ...u, driver: { ...u.driver, status } } : u));
+      else setError((await res.json().catch(() => ({}))).error ?? "Could not update the driver.");
+    } finally { setSavingId(""); }
+  };
+
+  const signOut = async () => { await api("session", { method: "DELETE" }).catch(() => undefined); onSignedOut(); };
+
+  const counts = useMemo(() => ({
+    all: users.length,
+    rider: users.filter((u) => u.role === "rider").length,
+    driver: users.filter((u) => u.role === "driver").length,
+    pending: users.filter((u) => u.driver?.status === "pending").length,
+  }), [users]);
+
+  const visible = users.filter((u) => {
+    if (tab === "rider" && u.role !== "rider") return false;
+    if (tab === "driver" && u.role !== "driver") return false;
+    if (tab === "pending" && u.driver?.status !== "pending") return false;
+    const q = query.trim().toLowerCase();
+    return !q || [u.fullName, u.email, u.phone, u.driver?.plateNumber, u.driver?.vehicle].some((v) => v?.toLowerCase().includes(q));
+  });
+
+  return <div className="admin-shell">
+    <header className="admin-top">
+      <div className="admin-brand"><span className="brand-mark"><ShieldCheck size={16} /></span><b>GoRide Admin</b></div>
+      <div className="admin-top-actions">
+        <button className="admin-ghost" onClick={load} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /> Refresh</button>
+        <button className="admin-ghost" onClick={signOut}><LogOut size={15} /> Sign out</button>
+      </div>
+    </header>
+    <main className="admin-main">
+      <div className="admin-stats">
+        <div><small>Total accounts</small><b>{counts.all}</b></div>
+        <div><small>Riders</small><b>{counts.rider}</b></div>
+        <div><small>Drivers</small><b>{counts.driver}</b></div>
+        <div className="warn"><small>Drivers awaiting approval</small><b>{counts.pending}</b></div>
+      </div>
+      <div className="admin-toolbar">
+        <div className="admin-tabs">{(["all", "rider", "driver", "pending"] as const).map((t) => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t === "all" ? "All" : t === "rider" ? "Riders" : t === "driver" ? "Drivers" : "Pending"} <span>{counts[t]}</span></button>)}</div>
+        <label className="admin-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, email, phone or plate" />{query && <button onClick={() => setQuery("")} aria-label="Clear search"><X size={14} /></button>}</label>
+      </div>
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      <div className="admin-table-wrap">
+        <table className="admin-table">
+          <thead><tr><th>Account</th><th>Type</th><th>Contact</th><th>Vehicle</th><th>Joined</th><th>Driver status</th></tr></thead>
+          <tbody>
+            {visible.map((u) => <tr key={u.id}>
+              <td><b>{u.fullName}</b><small>{u.email}</small></td>
+              <td><span className={`admin-role ${u.role}`}>{u.role === "driver" ? <CarFront size={13} /> : <UserRound size={13} />} {u.role === "driver" ? "Driver" : "Rider"}</span></td>
+              <td>{u.phone ?? <span className="muted">—</span>}</td>
+              <td>{u.driver ? <><b>{u.driver.vehicle}</b><small>{u.driver.plateNumber} · Licence {u.driver.licenseNumber}</small></> : <span className="muted">—</span>}</td>
+              <td>{new Date(u.createdAt).toLocaleDateString("en-AE", { day: "numeric", month: "short", year: "numeric" })}</td>
+              <td>{u.driver ? <div className="admin-status">
+                <span className={`status-pill ${u.driver.status}`}>{u.driver.status === "approved" && <BadgeCheck size={13} />}{u.driver.status}</span>
+                {u.driver.status !== "approved" && <button disabled={savingId === u.id} onClick={() => setStatus(u, "approved")}>Approve</button>}
+                {u.driver.status !== "rejected" && <button className="danger" disabled={savingId === u.id} onClick={() => setStatus(u, "rejected")}>Reject</button>}
+              </div> : <span className="muted">—</span>}</td>
+            </tr>)}
+            {!loading && visible.length === 0 && <tr><td colSpan={6} className="admin-empty">No accounts match.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>;
+}
