@@ -10,7 +10,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!/^[0-9a-f-]{36}$/i.test(userId) || typeof body.suspended !== "boolean") return json({ error: "Invalid request." }, 400);
   try {
     await ensureSchema();
-    const rows = await db()`UPDATE users SET suspended = ${body.suspended} WHERE id = ${userId} RETURNING suspended`;
+    const rows = await db()`UPDATE users SET suspended = ${body.suspended}, session_version = session_version + 1 WHERE id = ${userId} RETURNING suspended`;
     if (!rows.length) return json({ error: "Account not found." }, 404);
     return json({ ok: true, suspended: body.suspended });
   } catch (error) {
