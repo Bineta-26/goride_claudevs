@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { BadgeCheck, CarFront, Eye, EyeOff, LoaderCircle, LockKeyhole, LogOut, RefreshCw, Search, ShieldCheck, UserRound, X } from "lucide-react";
+import { Ban, BadgeCheck, CarFront, Eye, EyeOff, LoaderCircle, LockKeyhole, LogOut, Pencil, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 
 type AdminUser = {
   id: string;
@@ -9,6 +9,7 @@ type AdminUser = {
   email: string;
   phone: string | null;
   createdAt: string;
+  suspended: boolean;
   driver: { vehicle: string; plateNumber: string; licenseNumber: string; status: string } | null;
 };
 
@@ -102,7 +103,10 @@ function AdminDashboard({ api, onSignedOut }: { api: Api; onSignedOut: () => voi
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<"all" | "rider" | "driver" | "pending">("all");
+  const [tab, setTab] = useState<"all" | "rider" | "driver" | "pending" | "suspended">("all");
+  const [editing, setEditing] = useState<AdminUser | "new" | null>(null);
+  const [deleting, setDeleting] = useState<AdminUser | null>(null);
+  const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
   const [savingId, setSavingId] = useState("");
 
@@ -131,6 +135,32 @@ function AdminDashboard({ api, onSignedOut }: { api: Api; onSignedOut: () => voi
     } finally { setSavingId(""); }
   };
 
+  const setSuspended = async (user: AdminUser, suspended: boolean) => {
+    setSavingId(user.id);
+    setError("");
+    try {
+      const res = await api("account-status", { method: "POST", body: JSON.stringify({ userId: user.id, suspended }) });
+      if (res.status === 401) { onSignedOut(); return; }
+      if (res.ok) { setUsers((list) => list.map((u) => u.id === user.id ? { ...u, suspended } : u)); flash(`${user.fullName} ${suspended ? "is suspended" : "is active again"}.`); }
+      else setError((await res.json().catch(() => ({}))).error ?? "Could not update the account.");
+    } finally { setSavingId(""); }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    const user = deleting;
+    setSavingId(user.id);
+    setError("");
+    try {
+      const res = await api(`users?userId=${encodeURIComponent(user.id)}`, { method: "DELETE" });
+      if (res.status === 401) { onSignedOut(); return; }
+      if (res.ok) { setUsers((list) => list.filter((u) => u.id !== user.id)); flash(`${user.fullName}'s account was deleted.`); setDeleting(null); }
+      else setError((await res.json().catch(() => ({}))).error ?? "Could not delete the account.");
+    } finally { setSavingId(""); }
+  };
+
+  const flash = (text: string) => { setNotice(text); window.setTimeout(() => setNotice(""), 3500); };
+
   const signOut = async () => { await api("session", { method: "DELETE" }).catch(() => undefined); onSignedOut(); };
 
   const counts = useMemo(() => ({
@@ -138,12 +168,14 @@ function AdminDashboard({ api, onSignedOut }: { api: Api; onSignedOut: () => voi
     rider: users.filter((u) => u.role === "rider").length,
     driver: users.filter((u) => u.role === "driver").length,
     pending: users.filter((u) => u.driver?.status === "pending").length,
+    suspended: users.filter((u) => u.suspended).length,
   }), [users]);
 
   const visible = users.filter((u) => {
     if (tab === "rider" && u.role !== "rider") return false;
     if (tab === "driver" && u.role !== "driver") return false;
     if (tab === "pending" && u.driver?.status !== "pending") return false;
+    if (tab === "suspended" && !u.suspended) return false;
     const q = query.trim().toLowerCase();
     return !q || [u.fullName, u.email, u.phone, u.driver?.plateNumber, u.driver?.vehicle].some((v) => v?.toLowerCase().includes(q));
   });
@@ -164,16 +196,18 @@ function AdminDashboard({ api, onSignedOut }: { api: Api; onSignedOut: () => voi
         <div className="warn"><small>Drivers awaiting approval</small><b>{counts.pending}</b></div>
       </div>
       <div className="admin-toolbar">
-        <div className="admin-tabs">{(["all", "rider", "driver", "pending"] as const).map((t) => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t === "all" ? "All" : t === "rider" ? "Riders" : t === "driver" ? "Drivers" : "Pending"} <span>{counts[t]}</span></button>)}</div>
+        <div className="admin-tabs">{(["all", "rider", "driver", "pending", "suspended"] as const).map((t) => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{{ all: "All", rider: "Riders", driver: "Drivers", pending: "Pending", suspended: "Suspended" }[t]} <span>{counts[t]}</span></button>)}</div>
         <label className="admin-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, email, phone or plate" />{query && <button onClick={() => setQuery("")} aria-label="Clear search"><X size={14} /></button>}</label>
+        <button className="btn-primary admin-add" onClick={() => setEditing("new")}><Plus size={15} /> Add account</button>
       </div>
       {error && <div className="auth-error" role="alert">{error}</div>}
+      {notice && <div className="admin-notice" role="status">{notice}</div>}
       <div className="admin-table-wrap">
         <table className="admin-table">
-          <thead><tr><th>Account</th><th>Type</th><th>Contact</th><th>Vehicle</th><th>Joined</th><th>Driver status</th></tr></thead>
+          <thead><tr><th>Account</th><th>Type</th><th>Contact</th><th>Vehicle</th><th>Joined</th><th>Driver status</th><th className="admin-actions-col">Actions</th></tr></thead>
           <tbody>
-            {visible.map((u) => <tr key={u.id}>
-              <td><b>{u.fullName}</b><small>{u.email}</small></td>
+            {visible.map((u) => <tr key={u.id} className={u.suspended ? "is-suspended" : ""}>
+              <td><b>{u.fullName}</b><small>{u.email}</small>{u.suspended && <span className="status-pill rejected admin-suspended"><Ban size={12} /> Suspended</span>}</td>
               <td><span className={`admin-role ${u.role}`}>{u.role === "driver" ? <CarFront size={13} /> : <UserRound size={13} />} {u.role === "driver" ? "Driver" : "Rider"}</span></td>
               <td>{u.phone ?? <span className="muted">—</span>}</td>
               <td>{u.driver ? <><b>{u.driver.vehicle}</b><small>{u.driver.plateNumber} · Licence {u.driver.licenseNumber}</small></> : <span className="muted">—</span>}</td>
@@ -183,11 +217,68 @@ function AdminDashboard({ api, onSignedOut }: { api: Api; onSignedOut: () => voi
                 {u.driver.status !== "approved" && <button disabled={savingId === u.id} onClick={() => setStatus(u, "approved")}>Approve</button>}
                 {u.driver.status !== "rejected" && <button className="danger" disabled={savingId === u.id} onClick={() => setStatus(u, "rejected")}>Reject</button>}
               </div> : <span className="muted">—</span>}</td>
+              <td><div className="admin-row-actions">
+                <button title="Edit" aria-label={`Edit ${u.fullName}`} onClick={() => setEditing(u)}><Pencil size={14} /></button>
+                {u.suspended
+                  ? <button title="Reactivate" aria-label={`Reactivate ${u.fullName}`} disabled={savingId === u.id} onClick={() => setSuspended(u, false)}><RotateCcw size={14} /></button>
+                  : <button title="Suspend" aria-label={`Suspend ${u.fullName}`} disabled={savingId === u.id} onClick={() => setSuspended(u, true)}><Ban size={14} /></button>}
+                <button title="Delete" aria-label={`Delete ${u.fullName}`} className="danger" disabled={savingId === u.id} onClick={() => setDeleting(u)}><Trash2 size={14} /></button>
+              </div></td>
             </tr>)}
-            {!loading && visible.length === 0 && <tr><td colSpan={6} className="admin-empty">No accounts match.</td></tr>}
+            {!loading && visible.length === 0 && <tr><td colSpan={7} className="admin-empty">No accounts match.</td></tr>}
           </tbody>
         </table>
       </div>
     </main>
+    {editing && <AccountModal api={api} user={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={(text) => { setEditing(null); flash(text); load(); }} onSignedOut={onSignedOut} />}
+    {deleting && <div className="admin-modal-backdrop" onClick={() => setDeleting(null)}>
+      <div className="admin-modal" role="dialog" aria-modal="true" aria-labelledby="del-title" onClick={(e) => e.stopPropagation()}>
+        <div className="admin-modal-icon danger"><Trash2 size={18} /></div>
+        <h2 id="del-title">Delete {deleting.fullName}?</h2>
+        <p>This permanently removes the {deleting.role} account for <b>{deleting.email}</b>{deleting.role === "driver" ? " and their vehicle details" : ""}. It cannot be undone. If you only want to stop them using GoRide, suspend the account instead.</p>
+        <div className="admin-modal-actions"><button className="admin-btn" onClick={() => setDeleting(null)}>Cancel</button><button className="admin-btn danger" disabled={savingId === deleting.id} onClick={confirmDelete}>{savingId === deleting.id ? <LoaderCircle size={14} className="spin" /> : <Trash2 size={14} />} Delete permanently</button></div>
+      </div>
+    </div>}
+  </div>;
+}
+
+function AccountModal({ api, user, onClose, onSaved, onSignedOut }: { api: Api; user: AdminUser | null; onClose: () => void; onSaved: (text: string) => void; onSignedOut: () => void }) {
+  const isNew = !user;
+  const [role, setRole] = useState<"rider" | "driver">(user?.role ?? "rider");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    setBusy(true);
+    const form = Object.fromEntries(new FormData(event.currentTarget).entries());
+    try {
+      const res = await api("users", { method: isNew ? "POST" : "PATCH", body: JSON.stringify(isNew ? { ...form, role } : { ...form, userId: user.id }) });
+      if (res.status === 401) { onSignedOut(); return; }
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) onSaved(isNew ? `${form.fullName} was added as a ${role}.` : `${form.fullName}'s details were saved.`);
+      else setError(data.error ?? "Could not save.");
+    } catch { setError("Could not save right now."); }
+    finally { setBusy(false); }
+  };
+  return <div className="admin-modal-backdrop" onClick={onClose}>
+    <form className="admin-modal admin-form" role="dialog" aria-modal="true" aria-labelledby="acct-title" onClick={(e) => e.stopPropagation()} onSubmit={submit} autoComplete="off">
+      <div className="admin-modal-head"><h2 id="acct-title">{isNew ? "Add an account" : `Edit ${user.fullName}`}</h2><button type="button" className="admin-x" aria-label="Close" onClick={onClose}><X size={16} /></button></div>
+      {isNew ? <div className="role-switch" role="radiogroup" aria-label="Account type">
+        <button type="button" role="radio" aria-checked={role === "rider"} className={role === "rider" ? "active" : ""} onClick={() => setRole("rider")}><UserRound size={17} /><span><b>Rider</b></span></button>
+        <button type="button" role="radio" aria-checked={role === "driver"} className={role === "driver" ? "active" : ""} onClick={() => setRole("driver")}><CarFront size={17} /><span><b>Driver</b></span></button>
+      </div> : <p className="admin-form-note">{user.role === "driver" ? "Driver" : "Rider"} account · the account type cannot be changed.</p>}
+      <label>Full name<input name="fullName" required minLength={2} defaultValue={user?.fullName} /></label>
+      <label>Email<input name="email" type="email" required defaultValue={user?.email} /></label>
+      <label><span>Mobile number <em>(optional)</em></span><input name="phone" type="tel" defaultValue={user?.phone ?? ""} /></label>
+      {isNew && <label><span>Temporary password <em>(share it with the person; at least 8 characters)</em></span><input name="password" type="text" required minLength={8} autoComplete="new-password" /></label>}
+      {role === "driver" && <fieldset className="driver-fields"><legend>Vehicle</legend>
+        <label>Vehicle make &amp; model<input name="vehicle" required defaultValue={user?.driver?.vehicle} /></label>
+        <div className="auth-row"><label>Plate number<input name="plateNumber" required defaultValue={user?.driver?.plateNumber} /></label><label>Driving licence no.<input name="licenseNumber" required defaultValue={user?.driver?.licenseNumber} /></label></div>
+        {isNew && <p className="admin-form-note">Drivers added here are approved straight away.</p>}
+      </fieldset>}
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      <div className="admin-modal-actions"><button type="button" className="admin-btn" onClick={onClose}>Cancel</button><button className="admin-btn primary" disabled={busy}>{busy && <LoaderCircle size={14} className="spin" />}{isNew ? "Add account" : "Save changes"}</button></div>
+    </form>
   </div>;
 }
