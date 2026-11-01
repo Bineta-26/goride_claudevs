@@ -12,6 +12,7 @@ export type PublicUser = {
   email: string;
   phone: string | null;
   createdAt: string;
+  suspended: boolean;
   driver?: { vehicle: string; plateNumber: string; licenseNumber: string; status: string } | null;
 };
 
@@ -37,6 +38,7 @@ export function ensureSchema(): Promise<void> {
         password_hash text NOT NULL,
         created_at timestamptz NOT NULL DEFAULT now()
       )`;
+      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended boolean NOT NULL DEFAULT false`;
       await sql`CREATE TABLE IF NOT EXISTS driver_profiles (
         user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         vehicle text NOT NULL,
@@ -96,13 +98,13 @@ export function readSession(request: Request): { uid: string; role: Role } | nul
 
 export async function loadUser(id: string): Promise<PublicUser | null> {
   const sql = db();
-  const rows = await sql`SELECT u.id, u.role, u.full_name, u.email, u.phone, u.created_at,
+  const rows = await sql`SELECT u.id, u.role, u.full_name, u.email, u.phone, u.created_at, u.suspended,
       d.vehicle, d.plate_number, d.license_number, d.status
     FROM users u LEFT JOIN driver_profiles d ON d.user_id = u.id WHERE u.id = ${id}`;
   const r = rows[0] as Record<string, any> | undefined;
   if (!r) return null;
   return {
-    id: r.id, role: r.role, fullName: r.full_name, email: r.email, phone: r.phone, createdAt: new Date(r.created_at).toISOString(),
+    id: r.id, role: r.role, fullName: r.full_name, email: r.email, phone: r.phone, createdAt: new Date(r.created_at).toISOString(), suspended: !!r.suspended,
     driver: r.role === "driver" && r.vehicle ? { vehicle: r.vehicle, plateNumber: r.plate_number, licenseNumber: r.license_number, status: r.status } : null,
   };
 }
@@ -117,3 +119,24 @@ export async function readJson(request: Request): Promise<Record<string, unknown
 
 export const str = (value: unknown, max = 200) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 export const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value);
+
+export type AccountInput = { role: Role; fullName: string; email: string; phone: string | null; vehicle: string; plateNumber: string; licenseNumber: string };
+
+/** Reads and validates account fields shared by sign-up and the admin screen. Returns an error message or the clean values. */
+export function parseAccount(body: Record<string, unknown>): { error: string } | { value: AccountInput } {
+  const role = str(body.role) as Role;
+  const value: AccountInput = {
+    role,
+    fullName: str(body.fullName, 120),
+    email: str(body.email, 200).toLowerCase(),
+    phone: str(body.phone, 30) || null,
+    vehicle: str(body.vehicle, 120),
+    plateNumber: str(body.plateNumber, 20).toUpperCase(),
+    licenseNumber: str(body.licenseNumber, 40).toUpperCase(),
+  };
+  if (role !== "rider" && role !== "driver") return { error: "Choose whether the account is for a rider or a driver." };
+  if (value.fullName.length < 2) return { error: "Please enter the full name." };
+  if (!isEmail(value.email)) return { error: "Please enter a valid email address." };
+  if (role === "driver" && (!value.vehicle || !value.plateNumber || !value.licenseNumber)) return { error: "Drivers need a vehicle, plate number and licence number." };
+  return { value };
+}
