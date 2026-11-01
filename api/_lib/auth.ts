@@ -39,6 +39,7 @@ export function ensureSchema(): Promise<void> {
         created_at timestamptz NOT NULL DEFAULT now()
       )`;
       await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS suspended boolean NOT NULL DEFAULT false`;
+      await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version integer NOT NULL DEFAULT 0`;
       await sql`CREATE TABLE IF NOT EXISTS driver_profiles (
         user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         vehicle text NOT NULL,
@@ -74,13 +75,13 @@ function secret(): string {
 }
 function sign(value: string) { return createHmac("sha256", secret()).update(value).digest("base64url"); }
 
-export function sessionCookie(userId: string, role: Role): string {
-  const payload = Buffer.from(JSON.stringify({ uid: userId, role, exp: Math.floor(Date.now() / 1000) + MAX_AGE })).toString("base64url");
+export function sessionCookie(userId: string, role: Role, version = 0): string {
+  const payload = Buffer.from(JSON.stringify({ uid: userId, role, v: version, exp: Math.floor(Date.now() / 1000) + MAX_AGE })).toString("base64url");
   return `${COOKIE}=${payload}.${sign(payload)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${MAX_AGE}`;
 }
 export const clearCookie = `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 
-export function readSession(request: Request): { uid: string; role: Role } | null {
+export function readSession(request: Request): { uid: string; role: Role; v: number } | null {
   const cookie = request.headers.get("cookie") ?? "";
   const raw = cookie.split(/;\s*/).find((part) => part.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1);
   if (!raw) return null;
@@ -92,7 +93,7 @@ export function readSession(request: Request): { uid: string; role: Role } | nul
   try {
     const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
     if (typeof data.uid !== "string" || data.exp < Date.now() / 1000) return null;
-    return { uid: data.uid, role: data.role };
+    return { uid: data.uid, role: data.role, v: typeof data.v === "number" ? data.v : 0 };
   } catch { return null; }
 }
 
@@ -140,3 +141,27 @@ export function parseAccount(body: Record<string, unknown>): { error: string } |
   if (role === "driver" && (!value.vehicle || !value.plateNumber || !value.licenseNumber)) return { error: "Drivers need a vehicle, plate number and licence number." };
   return { value };
 }
+
+/**
+ * The signed-in person for this request, or null. A session stops working when the account is
+ * suspended or deleted, or when its password changes (session_version is bumped).
+ */
+export async function currentUser(request: Request): Promise<PublicUser | null> {
+  const session = readSession(request);
+  if (!session) return null;
+  await ensureSchema();
+  const rows = await db()`SELECT session_version, suspended FROM users WHERE id = ${session.uid}`;
+  const row = rows[0] as { session_version: number; suspended: boolean } | undefined;
+  if (!row || row.suspended || row.session_version !== session.v) return null;
+  return loadUser(session.uid);
+}
+
+/** Changes a password and signs out every existing session. Returns the new session version. */
+export async function setPassword(userId: string, password: string): Promise<number> {
+  const hash = await hashPassword(password);
+  const rows = await db()`UPDATE users SET password_hash = ${hash}, session_version = session_version + 1 WHERE id = ${userId} RETURNING session_version`;
+  return (rows[0] as { session_version: number } | undefined)?.session_version ?? 0;
+}
+
+export const passwordProblem = (password: unknown) =>
+  typeof password !== "string" || password.length < 8 ? "The password needs at least 8 characters." : password.length > 200 ? "The password is too long." : "";
