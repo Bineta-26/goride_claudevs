@@ -7,12 +7,12 @@ export async function POST(request: Request): Promise<Response> {
     const password = typeof body.password === "string" ? body.password : "";
     if (!email || !password) return json({ error: "Enter your email and password." }, 400);
     await ensureSchema();
-    const rows = await db()`SELECT id, role, password_hash, suspended FROM users WHERE email = ${email}`;
-    const row = rows[0] as { id: string; role: Role; password_hash: string; suspended: boolean } | undefined;
+    const rows = await db()`SELECT id, role, password_hash, suspended, session_version FROM users WHERE email = ${email}`;
+    const row = rows[0] as { id: string; role: Role; password_hash: string; suspended: boolean; session_version: number } | undefined;
     if (!row || !(await verifyPassword(password, row.password_hash))) return json({ error: "Email or password is incorrect." }, 401);
     if (row.suspended) return json({ error: "This account has been suspended. Please contact GoRide support." }, 403);
     const user = await loadUser(row.id);
-    return json({ user }, 200, { "set-cookie": sessionCookie(row.id, row.role) });
+    return json({ user }, 200, { "set-cookie": sessionCookie(row.id, row.role, row.session_version) });
   } catch (error) {
     console.error("login failed", error);
     return json({ error: "We could not sign you in right now. Please try again." }, 500);
