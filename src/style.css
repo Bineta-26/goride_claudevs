@@ -767,3 +767,9 @@ a{color:inherit;text-decoration:none}
 .admin-form input{height:38px;border:1px solid #e1e8e3;border-radius:8px;padding:0 11px;font-size:13px;width:100%}
 .admin-form .role-switch{margin:0}
 .admin-form-note{font-size:11.5px!important;color:#7d8983!important}
+.admin-actions-col{width:150px}
+.password-panel .section-title{display:flex;justify-content:space-between;align-items:center}
+.password-hint{font-size:11px;color:#87928d;margin:4px 0 0}
+.password-panel .auth-form{margin-top:10px}
+.password-actions{display:flex;justify-content:flex-end;align-items:center;gap:14px}
+.password-actions .text-link{border:0;background:none}

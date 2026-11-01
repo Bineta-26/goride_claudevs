@@ -111,3 +111,40 @@ export function AuthPage({ mode }: { mode: "signup" | "login" }) {
     </div>
   </div>;
 }
+
+export function ChangePasswordPanel({ onDone }: { onDone: (message: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [show, setShow] = useState(false);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    const form = event.currentTarget;
+    const data = Object.fromEntries(new FormData(form).entries()) as Record<string, string>;
+    if (data.newPassword !== data.confirmPassword) { setError("The new passwords do not match."); return; }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/auth/change-password", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ currentPassword: data.currentPassword, newPassword: data.newPassword }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setError(body.error ?? "Could not change your password."); return; }
+      form.reset();
+      setOpen(false);
+      onDone("Your password has been changed. Other devices have been signed out.");
+    } catch { setError("We could not reach GoRide. Please try again."); }
+    finally { setBusy(false); }
+  };
+  return <div className="panel settings-panel password-panel">
+    <div className="section-title"><h2>Password &amp; security</h2>{!open && <button className="text-link" onClick={() => setOpen(true)}>Change password <ArrowRight size={14} /></button>}</div>
+    {!open ? <p className="password-hint">Use a strong password you do not use anywhere else. Changing it signs you out on other devices.</p> :
+    <form className="auth-form" onSubmit={submit}>
+      <label>Current password<span className="password-field"><input name="currentPassword" type={show ? "text" : "password"} required autoComplete="current-password" /><button type="button" aria-label={show ? "Hide passwords" : "Show passwords"} onClick={() => setShow(!show)}>{show ? <EyeOff size={16} /> : <Eye size={16} />}</button></span></label>
+      <div className="auth-row">
+        <label>New password<input name="newPassword" type={show ? "text" : "password"} required minLength={8} autoComplete="new-password" placeholder="At least 8 characters" /></label>
+        <label>Confirm new password<input name="confirmPassword" type={show ? "text" : "password"} required minLength={8} autoComplete="new-password" /></label>
+      </div>
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      <div className="password-actions"><button type="button" className="text-link" onClick={() => { setOpen(false); setError(""); }}>Cancel</button><button className="btn-primary" disabled={busy}>{busy && <LoaderCircle size={15} className="spin" />} Update password</button></div>
+    </form>}
+  </div>;
+}

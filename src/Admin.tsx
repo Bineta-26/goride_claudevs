@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Ban, BadgeCheck, CarFront, Eye, EyeOff, LoaderCircle, LockKeyhole, LogOut, Pencil, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
+import { Ban, BadgeCheck, CarFront, Eye, EyeOff, KeyRound, LoaderCircle, LockKeyhole, LogOut, Pencil, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 
 type AdminUser = {
   id: string;
@@ -106,6 +106,7 @@ function AdminDashboard({ api, onSignedOut }: { api: Api; onSignedOut: () => voi
   const [tab, setTab] = useState<"all" | "rider" | "driver" | "pending" | "suspended">("all");
   const [editing, setEditing] = useState<AdminUser | "new" | null>(null);
   const [deleting, setDeleting] = useState<AdminUser | null>(null);
+  const [resetting, setResetting] = useState<AdminUser | null>(null);
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
   const [savingId, setSavingId] = useState("");
@@ -219,6 +220,7 @@ function AdminDashboard({ api, onSignedOut }: { api: Api; onSignedOut: () => voi
               </div> : <span className="muted">—</span>}</td>
               <td><div className="admin-row-actions">
                 <button title="Edit" aria-label={`Edit ${u.fullName}`} onClick={() => setEditing(u)}><Pencil size={14} /></button>
+                <button title="Reset password" aria-label={`Reset password for ${u.fullName}`} onClick={() => setResetting(u)}><KeyRound size={14} /></button>
                 {u.suspended
                   ? <button title="Reactivate" aria-label={`Reactivate ${u.fullName}`} disabled={savingId === u.id} onClick={() => setSuspended(u, false)}><RotateCcw size={14} /></button>
                   : <button title="Suspend" aria-label={`Suspend ${u.fullName}`} disabled={savingId === u.id} onClick={() => setSuspended(u, true)}><Ban size={14} /></button>}
@@ -231,6 +233,7 @@ function AdminDashboard({ api, onSignedOut }: { api: Api; onSignedOut: () => voi
       </div>
     </main>
     {editing && <AccountModal api={api} user={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={(text) => { setEditing(null); flash(text); load(); }} onSignedOut={onSignedOut} />}
+    {resetting && <ResetPasswordModal api={api} user={resetting} onClose={() => setResetting(null)} onSaved={(text) => { setResetting(null); flash(text); }} onSignedOut={onSignedOut} />}
     {deleting && <div className="admin-modal-backdrop" onClick={() => setDeleting(null)}>
       <div className="admin-modal" role="dialog" aria-modal="true" aria-labelledby="del-title" onClick={(e) => e.stopPropagation()}>
         <div className="admin-modal-icon danger"><Trash2 size={18} /></div>
@@ -279,6 +282,34 @@ function AccountModal({ api, user, onClose, onSaved, onSignedOut }: { api: Api; 
       </fieldset>}
       {error && <div className="auth-error" role="alert">{error}</div>}
       <div className="admin-modal-actions"><button type="button" className="admin-btn" onClick={onClose}>Cancel</button><button className="admin-btn primary" disabled={busy}>{busy && <LoaderCircle size={14} className="spin" />}{isNew ? "Add account" : "Save changes"}</button></div>
+    </form>
+  </div>;
+}
+
+function ResetPasswordModal({ api, user, onClose, onSaved, onSignedOut }: { api: Api; user: AdminUser; onClose: () => void; onSaved: (text: string) => void; onSignedOut: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    const password = String(new FormData(event.currentTarget).get("password") ?? "");
+    setBusy(true);
+    try {
+      const res = await api("reset-password", { method: "POST", body: JSON.stringify({ userId: user.id, password }) });
+      if (res.status === 401) { onSignedOut(); return; }
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) onSaved(`${user.fullName}'s password was reset. Share the temporary password with them privately.`);
+      else setError(data.error ?? "Could not reset the password.");
+    } catch { setError("Could not reset the password right now."); }
+    finally { setBusy(false); }
+  };
+  return <div className="admin-modal-backdrop" onClick={onClose}>
+    <form className="admin-modal admin-form" role="dialog" aria-modal="true" aria-labelledby="reset-title" onClick={(e) => e.stopPropagation()} onSubmit={submit} autoComplete="off">
+      <div className="admin-modal-head"><h2 id="reset-title">Reset password</h2><button type="button" className="admin-x" aria-label="Close" onClick={onClose}><X size={16} /></button></div>
+      <p>Set a new temporary password for <b>{user.fullName}</b> ({user.email}). They will be signed out on every device and can change it from their Profile page after logging in.</p>
+      <label><span>New temporary password <em>(at least 8 characters)</em></span><input name="password" type="text" required minLength={8} autoComplete="new-password" /></label>
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      <div className="admin-modal-actions"><button type="button" className="admin-btn" onClick={onClose}>Cancel</button><button className="admin-btn primary" disabled={busy}>{busy && <LoaderCircle size={14} className="spin" />}Reset password</button></div>
     </form>
   </div>;
 }
