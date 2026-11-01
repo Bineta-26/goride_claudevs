@@ -107,6 +107,7 @@ export function AuthPage({ mode }: { mode: "signup" | "login" }) {
         {error && <div className="auth-error" role="alert">{error}</div>}
         <button className="btn-primary full-btn" type="submit" disabled={busy}>{busy ? <LoaderCircle size={16} className="spin" /> : null}{isSignup ? `Create ${role} account` : "Log in"} {!busy && <ArrowRight size={16} />}</button>
       </form>
+      {!isSignup && <p className="auth-forgot"><Link to="/forgot-password">Forgot password?</Link></p>}
       <p className="auth-switch">{isSignup ? <>Already have an account? <Link to="/login">Log in</Link></> : <>New to GoRide? <Link to="/signup">Create an account</Link></>}</p>
     </div>
   </div>;
@@ -147,4 +148,68 @@ export function ChangePasswordPanel({ onDone }: { onDone: (message: string) => v
       <div className="password-actions"><button type="button" className="text-link" onClick={() => { setOpen(false); setError(""); }}>Cancel</button><button className="btn-primary" disabled={busy}>{busy && <LoaderCircle size={15} className="spin" />} Update password</button></div>
     </form>}
   </div>;
+}
+
+export function ForgotPasswordPage() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState("");
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      const res = await fetch("/api/auth/forgot-password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: new FormData(event.currentTarget).get("email") }) });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setSent(data.message); else setError(data.error ?? "Something went wrong. Please try again.");
+    } catch { setError("We could not reach GoRide. Check your connection and try again."); }
+    finally { setBusy(false); }
+  };
+  return <div className="auth-page"><div className="auth-card panel">
+    <span className="eyebrow">ACCOUNT HELP</span>
+    <h1>Forgot your password?</h1>
+    {sent ? <><div className="auth-success" role="status">{sent}</div><p className="auth-switch"><Link to="/login">Back to log in</Link></p></> : <>
+      <p className="auth-sub">Enter the email you signed up with and we will send you a link to choose a new password.</p>
+      <form className="auth-form" onSubmit={submit}>
+        <label>Email<input name="email" type="email" autoComplete="email" required placeholder="you@example.com" /></label>
+        {error && <div className="auth-error" role="alert">{error}</div>}
+        <button className="btn-primary full-btn" disabled={busy}>{busy && <LoaderCircle size={16} className="spin" />} Send reset link</button>
+      </form>
+      <p className="auth-switch">Remembered it? <Link to="/login">Log in</Link></p>
+    </>}
+  </div></div>;
+}
+
+export function ResetPasswordPage() {
+  const navigate = useNavigate();
+  const token = new URLSearchParams(window.location.search).get("token") ?? "";
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(token ? "" : "This reset link is incomplete. Please request a new one.");
+  const [done, setDone] = useState(false);
+  const [show, setShow] = useState(false);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    const data = Object.fromEntries(new FormData(event.currentTarget).entries()) as Record<string, string>;
+    if (data.password !== data.confirm) { setError("The passwords do not match."); return; }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/auth/reset-password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, password: data.password }) });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) { setDone(true); window.history.replaceState(null, "", "/reset-password"); } else setError(body.error ?? "Could not reset your password.");
+    } catch { setError("We could not reach GoRide. Please try again."); }
+    finally { setBusy(false); }
+  };
+  return <div className="auth-page"><div className="auth-card panel">
+    <span className="eyebrow">ACCOUNT HELP</span>
+    <h1>{done ? "Password updated" : "Choose a new password"}</h1>
+    {done ? <><div className="auth-success" role="status">Your password has been changed and you have been signed out on all devices. You can now log in with your new password.</div>
+      <button className="btn-primary full-btn" style={{ marginTop: 14 }} onClick={() => navigate("/login")}>Go to log in <ArrowRight size={16} /></button></> :
+    <form className="auth-form" onSubmit={submit}>
+      <label>New password<span className="password-field"><input name="password" type={show ? "text" : "password"} required minLength={8} autoComplete="new-password" placeholder="At least 8 characters" disabled={!token} /><button type="button" aria-label={show ? "Hide password" : "Show password"} onClick={() => setShow(!show)}>{show ? <EyeOff size={16} /> : <Eye size={16} />}</button></span></label>
+      <label>Confirm new password<input name="confirm" type={show ? "text" : "password"} required minLength={8} autoComplete="new-password" disabled={!token} /></label>
+      {error && <div className="auth-error" role="alert">{error} {(!token || error.includes("expired")) && <Link to="/forgot-password">Request a new link</Link>}</div>}
+      <button className="btn-primary full-btn" disabled={busy || !token}>{busy && <LoaderCircle size={16} className="spin" />} Save new password</button>
+    </form>}
+  </div></div>;
 }

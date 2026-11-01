@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import MapPanel from "./MapPanel";
-import { AuthPage, ChangePasswordPanel, initials, useAuth } from "./Auth";
+import { AuthPage, ChangePasswordPanel, ForgotPasswordPage, ResetPasswordPage, initials, useAuth } from "./Auth";
 
 const AdminPortal = lazy(() => import("./Admin"));
 import { estimateFare, getRouteDistanceKm, places, rideTypes, seedTrips, type Booking } from "./data";
@@ -93,7 +93,7 @@ function App() {
   const fare = estimateFare(rideId, distanceKm, promo);
   const selectedRide = rideTypes.find((ride) => ride.id === rideId) ?? rideTypes[1];
   const currentTitle = navItems.find((item) => location.pathname.startsWith(item.path))?.label ??
-    (location.pathname === "/driver" ? "Driver mode" : location.pathname === "/confirm" ? "Confirm your ride" : location.pathname === "/tracking" ? "On your way" : location.pathname === "/profile" ? "Profile & settings" : location.pathname === "/safety" ? "Safety & support" : location.pathname === "/signup" ? "Create account" : location.pathname === "/login" ? "Log in" : "Your ride, your way");
+    (location.pathname === "/driver" ? "Driver mode" : location.pathname === "/confirm" ? "Confirm your ride" : location.pathname === "/tracking" ? "On your way" : location.pathname === "/profile" ? "Profile & settings" : location.pathname === "/safety" ? "Safety & support" : location.pathname === "/signup" ? "Create account" : location.pathname === "/login" ? "Log in" : location.pathname === "/forgot-password" || location.pathname === "/reset-password" ? "Reset password" : "Your ride, your way");
 
   const makeBooking = (status: Booking["status"], id = `GR-${Math.floor(2000 + Math.random() * 7000)}`): Booking => ({
     id, pickup, destination, category: selectedRide.name, fare, payment, date: `Today, ${new Date().toLocaleTimeString("en-AE", { hour: "numeric", minute: "2-digit" })}`, status,
@@ -211,6 +211,8 @@ function App() {
                 <Route path="/safety" element={<SafetyPage announce={announce} />} />
                 <Route path="/signup" element={<AuthPage mode="signup" />} />
                 <Route path="/login" element={<AuthPage mode="login" />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
             </motion.div>
