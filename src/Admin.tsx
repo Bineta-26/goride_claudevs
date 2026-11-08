@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import FleetView from "./Fleet";
 import { useNavigate, useParams } from "react-router-dom";
-import { Ban, BadgeCheck, CarFront, Eye, EyeOff, KeyRound, LoaderCircle, LockKeyhole, LogOut, Pencil, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
+import { Ban, BadgeCheck, CarFront, Eye, EyeOff, KeyRound, LoaderCircle, LockKeyhole, LogOut, Gauge, Users, Pencil, Plus, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
 
 type AdminUser = {
   id: string;
@@ -110,6 +111,7 @@ function AdminDashboard({ api, onSignedOut }: { api: Api; onSignedOut: () => voi
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
   const [savingId, setSavingId] = useState("");
+  const [view, setView] = useState<"accounts" | "fleet">("accounts");
 
   const load = async () => {
     setLoading(true);
@@ -184,12 +186,16 @@ function AdminDashboard({ api, onSignedOut }: { api: Api; onSignedOut: () => voi
   return <div className="admin-shell">
     <header className="admin-top">
       <div className="admin-brand"><span className="brand-mark"><ShieldCheck size={16} /></span><b>GoRide Admin</b></div>
+      <nav className="admin-views" aria-label="Admin sections">
+        <button className={view === "accounts" ? "active" : ""} onClick={() => setView("accounts")}><Users size={15} /> Accounts</button>
+        <button className={view === "fleet" ? "active" : ""} onClick={() => setView("fleet")}><Gauge size={15} /> Driver performance</button>
+      </nav>
       <div className="admin-top-actions">
         <button className="admin-ghost" onClick={load} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /> Refresh</button>
         <button className="admin-ghost" onClick={signOut}><LogOut size={15} /> Sign out</button>
       </div>
     </header>
-    <main className="admin-main">
+    {view === "fleet" ? <main className="admin-main"><FleetView api={api} users={users} onSignedOut={onSignedOut} /></main> : <main className="admin-main">
       <div className="admin-stats">
         <div><small>Total accounts</small><b>{counts.all}</b></div>
         <div><small>Riders</small><b>{counts.rider}</b></div>
@@ -231,7 +237,7 @@ function AdminDashboard({ api, onSignedOut }: { api: Api; onSignedOut: () => voi
           </tbody>
         </table>
       </div>
-    </main>
+    </main>}
     {editing && <AccountModal api={api} user={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={(text) => { setEditing(null); flash(text); load(); }} onSignedOut={onSignedOut} />}
     {resetting && <ResetPasswordModal api={api} user={resetting} onClose={() => setResetting(null)} onSaved={(text) => { setResetting(null); flash(text); }} onSignedOut={onSignedOut} />}
     {deleting && <div className="admin-modal-backdrop" onClick={() => setDeleting(null)}>
