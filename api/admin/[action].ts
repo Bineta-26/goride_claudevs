@@ -1,5 +1,6 @@
 // One serverless function for every /api/admin/* route. Unknown routes look exactly like a missing page.
 import * as accountStatus from "../_handlers/admin/account-status.js";
+import * as driverCosts from "../_handlers/admin/driver-costs.js";
 import * as driverStatus from "../_handlers/admin/driver-status.js";
 import * as gate from "../_handlers/admin/gate.js";
 import * as login from "../_handlers/admin/login.js";
@@ -10,7 +11,7 @@ import { notFound } from "../_lib/admin.js";
 
 type Handler = (request: Request) => Response | Promise<Response>;
 const routes: Record<string, Partial<Record<string, Handler>>> = {
-  "account-status": accountStatus, "driver-status": driverStatus, gate, login, "reset-password": resetPassword, session, users,
+  "account-status": accountStatus, "driver-costs": driverCosts, "driver-status": driverStatus, gate, login, "reset-password": resetPassword, session, users,
 };
 
 async function handle(request: Request): Promise<Response> {
