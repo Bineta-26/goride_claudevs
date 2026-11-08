@@ -55,9 +55,26 @@ export function ensureSchema(): Promise<void> {
         status text NOT NULL DEFAULT 'pending',
         created_at timestamptz NOT NULL DEFAULT now()
       )`;
+      await seedDemoRiders();
     })().catch((error) => { schemaReady = null; throw error; });
   }
   return schemaReady;
+}
+
+/** Example rider accounts. Created only when DEMO_RIDER_PASSWORD (8+ characters) is set in Vercel; never overwrites an existing account. */
+export const DEMO_RIDERS = [
+  { fullName: "Aisha Rahman", email: "aisha.rahman@demo.goride.ae", phone: "+971 50 318 2264" },
+  { fullName: "Daniel Okafor", email: "daniel.okafor@demo.goride.ae", phone: "+971 55 907 4413" },
+];
+async function seedDemoRiders() {
+  const password = (process.env.DEMO_RIDER_PASSWORD ?? "").trim();
+  if (password.length < 8) return;
+  const sql = db();
+  for (const rider of DEMO_RIDERS) {
+    if ((await sql`SELECT 1 FROM users WHERE email = ${rider.email}`).length) continue;
+    const hash = await hashPassword(password);
+    await sql`INSERT INTO users (role, full_name, email, phone, password_hash) VALUES ('rider', ${rider.fullName}, ${rider.email}, ${rider.phone}, ${hash}) ON CONFLICT (email) DO NOTHING`;
+  }
 }
 
 export async function hashPassword(password: string): Promise<string> {
