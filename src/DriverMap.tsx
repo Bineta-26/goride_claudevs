@@ -4,7 +4,8 @@ import L from "leaflet";
 
 export type MapDriver = { key: string; name: string; position: [number, number]; online: boolean; selected?: boolean };
 
-const GOOGLE_KEY = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined)?.trim() ?? "";
+declare const __GOOGLE_MAPS_API_KEY__: string;
+const GOOGLE_KEY = (typeof __GOOGLE_MAPS_API_KEY__ === "string" ? __GOOGLE_MAPS_API_KEY__ : "").trim();
 export const usingGoogleMaps = !!GOOGLE_KEY;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
