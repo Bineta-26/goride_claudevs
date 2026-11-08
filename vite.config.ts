@@ -3,6 +3,10 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // Only this one setting is passed to the browser (Google Maps keys are public by design; restrict it by website in Google Cloud).
+  define: {
+    __GOOGLE_MAPS_API_KEY__: JSON.stringify(process.env.CONFIG_GOOGLE_MAPS_API_KEY ?? ""),
+  },
   build: {
     rollupOptions: {
       output: {
